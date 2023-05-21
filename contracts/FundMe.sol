@@ -2,6 +2,8 @@
 pragma solidity 0.8.8; // If we put ^ it will take everything above as well; we can use >= <= as well
 
 import "./PriceConverter.sol";
+import "@chainlink/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol";
+import "hardhat/console.sol";
 
 error FundMe__NotOwner();
 error FundMe__InsufficientAmount();
@@ -16,47 +18,44 @@ error FundMe__WithdrawError();
 contract FundMe {
     using PriceConverter for uint256;
 
-    uint256 public constant MINIMUM_USD = 50 * 1e18;
+    uint256 public constant MINIMUM_USD = 50;
     address private immutable i_owner;
     address[] private s_funders;
     mapping(address => uint256) private s_addressToAmountFunded;
     AggregatorV3Interface private s_priceFeed;
 
     modifier onlyOwner() {
-        if (msg.sender != i_owner) {
-            revert FundMe__NotOwner();
-        }
-        // equire(msg.sender == i_owner, "Sender is not owner!");
+        console.log("SenderWithdraw", msg.sender);
+        console.log("OwnerWithdraw", i_owner);
+        if (msg.sender != i_owner) revert FundMe__NotOwner();
         _; // run the rest of the funciton
     }
 
     constructor(address priceFeedAddress) {
-        i_owner = msg.sender;
         s_priceFeed = AggregatorV3Interface(priceFeedAddress);
+        i_owner = msg.sender;
     }
 
-    receive() external payable {
-        fund();
-    }
+    receive() external payable {}
 
-    fallback() external payable {
-        fund();
-    }
+    fallback() external payable {}
 
     /**
      * @notice This function funds the contract
      * @dev This implements price feeds as a library
      */
     function fund() public payable {
-        if (msg.value.getConversionRate(s_priceFeed) < MINIMUM_USD) {
+        console.log("SenderFund", msg.sender);
+        console.log("OwnerFund", i_owner);
+        if (msg.value.getConversionRate(s_priceFeed) <= MINIMUM_USD) {
             revert FundMe__InsufficientAmount();
         }
-        // require(msg.value.getConversionRate() > MINIMUM_USD, "Did not send enough money!");
-        s_funders.push(msg.sender); // Add all funders to our contract
-        s_addressToAmountFunded[msg.sender] = msg.value;
+
+        s_addressToAmountFunded[msg.sender] += msg.value;
+        s_funders.push(msg.sender); // Add funder to our contract
     }
 
-    function withdraw() public payable onlyOwner {
+    function withdraw() public onlyOwner {
         address[] memory funders = s_funders;
         for (
             uint256 funderIndex = 0;
@@ -69,9 +68,7 @@ contract FundMe {
 
         s_funders = new address[](0);
 
-        (bool callSuccess, ) = payable(msg.sender).call{
-            value: address(this).balance
-        }("");
+        (bool callSuccess, ) = i_owner.call{value: address(this).balance}("");
 
         if (!callSuccess) {
             revert FundMe__WithdrawError();
